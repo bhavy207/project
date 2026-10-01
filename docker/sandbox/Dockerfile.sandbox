@@ -1,0 +1,31 @@
+# ==============================================================================
+# DevPilot — Isolated Execution Sandbox Container
+# Zero-cost local execution environment for agent-generated code and test suites
+# ==============================================================================
+
+FROM alpine:3.19
+
+# Install Node.js, Python, Git, and build tools
+RUN apk add --no-cache \
+    nodejs \
+    npm \
+    python3 \
+    py3-pip \
+    bash \
+    curl \
+    git \
+    coreutils
+
+# Create an unprivileged sandbox user
+RUN addgroup -g 1001 sandboxgroup && \
+    adduser -u 1001 -G sandboxgroup -s /bin/bash -D sandboxuser
+
+# Create isolated working directory
+WORKDIR /workspace
+RUN chown -R sandboxuser:sandboxgroup /workspace
+
+USER sandboxuser
+
+# Default entrypoint for executing sandboxed test runner
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["echo 'DevPilot Sandbox Ready'"]

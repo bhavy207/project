@@ -1,0 +1,236 @@
+version: '3.8'
+
+# ==============================================================================
+# DevPilot — Zero-Cost Local Multi-Container Architecture
+# 100% Free / Open Source Infrastructure (No Cloud or Paid SaaS Required)
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # Relational & Vector Database: PostgreSQL 16 + pgvector
+  # Classification: FREE / OPEN SOURCE
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: devpilot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-devpilot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d devpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - devpilot-net
+
+  # ----------------------------------------------------------------------------
+  # In-Memory Cache & Message Broker: Redis Alpine
+  # Classification: FREE / OPEN SOURCE
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: devpilot-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - devpilot-net
+
+  # ----------------------------------------------------------------------------
+  # Local Email Testing Server & Web Viewer: Mailpit
+  # Classification: FREE / OPEN SOURCE
+  # ----------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: devpilot-mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP port
+      - "8025:8025" # Web UI inspector
+    networks:
+      - devpilot-net
+
+  # ----------------------------------------------------------------------------
+  # S3-Compatible Object File Storage: MinIO
+  # Classification: FREE / OPEN SOURCE
+  # ----------------------------------------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: devpilot-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Web Console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - devpilot-net
+
+  # ----------------------------------------------------------------------------
+  # Metrics Collection: Prometheus
+  # Classification: FREE / OPEN SOURCE
+  # ----------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: devpilot-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - devpilot-net
+
+  # ----------------------------------------------------------------------------
+  # Metrics Dashboard & Visualization: Grafana
+  # Classification: FREE / OPEN SOURCE
+  # ----------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.3.0
+    container_name: devpilot-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - devpilot-net
+
+  # ----------------------------------------------------------------------------
+  # AI Reasoning & Agent Engine: FastAPI (Python)
+  # Classification: FREE / OPEN SOURCE (Connects to Ollama / Mock / Gemini)
+  # ----------------------------------------------------------------------------
+  ai-service:
+    build:
+      context: ./apps/ai-service
+      dockerfile: Dockerfile
+    container_name: devpilot-ai-service
+    restart: unless-stopped
+    environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-deepseek-coder:6.7b}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-flash}
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/devpilot
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - devpilot-net
+
+  # ----------------------------------------------------------------------------
+  # Core API & Task Orchestrator: NestJS (Node.js)
+  # Classification: FREE / OPEN SOURCE
+  # ----------------------------------------------------------------------------
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: devpilot-api
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/devpilot?schema=public
+      - REDIS_URL=redis://redis:6379
+      - AI_SERVICE_URL=http://ai-service:8000
+      - JWT_SECRET=${JWT_SECRET:-devpilot_super_secret_local_jwt_key_32_chars_min!}
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-local}
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-mailpit}
+      - SMTP_HOST=mailpit
+      - SMTP_PORT=1025
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./uploads:/app/uploads
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Docker sandbox execution
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+    networks:
+      - devpilot-net
+
+  # ----------------------------------------------------------------------------
+  # User Interface Web Dashboard: Next.js 14
+  # Classification: FREE / OPEN SOURCE
+  # ----------------------------------------------------------------------------
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: devpilot-web
+    restart: unless-stopped
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:4000
+      - NEXT_PUBLIC_AI_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - devpilot-net
+
+networks:
+  devpilot-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:
