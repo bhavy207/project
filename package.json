@@ -1,0 +1,30 @@
+{
+  "name": "devpilot-workspace",
+  "version": "1.0.0",
+  "description": "DevPilot — Autonomous AI Developer Platform with Zero Mandatory Paid Services",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "setup:local": "node scripts/check-env.js"
+  },
+  "keywords": [
+    "ai-developer",
+    "agentic-ai",
+    "ollama",
+    "pgvector",
+    "docker-sandbox",
+    "zero-cost"
+  ],
+  "author": "bhavy207",
+  "license": "MIT"
+}
