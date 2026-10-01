@@ -8,6 +8,7 @@
     "packages/*"
   ],
   "scripts": {
+    "start": "node scripts/start.js",
     "dev": "npm run dev --workspaces",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
@@ -15,7 +16,8 @@
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
-    "setup:local": "node scripts/check-env.js"
+    "setup:local": "node scripts/check-env.js",
+    "demo": "node scripts/run-demo.js"
   },
   "keywords": [
     "ai-developer",
