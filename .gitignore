@@ -30,6 +30,7 @@ pgdata/
 minio-data/
 grafana-data/
 prometheus-data/
+uploads/
 
 # Logs
 logs/
