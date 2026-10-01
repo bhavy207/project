@@ -1,0 +1,49 @@
+name: DevPilot CI (Zero-Cost Free Tier)
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  zero-cost-budget-check:
+    name: Verify $0 Budget Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run Zero-Cost Compliance Audit
+        run: node scripts/check-env.js
+
+  test-ai-service:
+    name: Test FastAPI AI Engine (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Dependencies
+        run: |
+          cd apps/ai-service
+          pip install -r requirements.txt
+      - name: Test AI Providers & Mock Inference
+        run: |
+          python -c "import sys; sys.path.insert(0, 'apps/ai-service'); from app.providers.factory import get_llm_provider; import asyncio; p = get_llm_provider('mock'); print(asyncio.run(p.generate('plan feature auth')))"
+
+  test-backend-api:
+    name: Test NestJS API & Providers (Node.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run Backend Provider Unit Tests
+        run: node apps/api/scripts/test-api.js
